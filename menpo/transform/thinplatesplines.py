@@ -53,7 +53,11 @@ class ThinPlateSplines(Alignment, Transform, Invertible):
     def _build_coefficients(self):
         self.v = self.target.points.T.copy()
         self.y = np.hstack([self.v, np.zeros([2, 3])])
-        self.coefficients = np.linalg.solve(self.l, self.y.T)
+
+        _u, _s, _v = np.linalg.svd(self.l)
+        keep = _s.shape[0] - sum(_s < 1e-4)
+        inv_l = _u[:, :keep].dot(1/_s[:keep,None]*_v[:keep, :])
+        self.coefficients = inv_l.dot(self.y.T)
 
     def _sync_state_from_target(self):
         # now the target is updated, we only have to rebuild the
