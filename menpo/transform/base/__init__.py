@@ -57,7 +57,7 @@ class Transform(Copyable):
 
         :type: int or None
         """
-        return None
+        return 2
 
     @property
     def n_dims_output(self):
