@@ -140,101 +140,97 @@ class ICP(MultipleAlignment):
         return nodes[index], index
 
 
-class NICP(ICP):
-    def __init__(self, sources, target=None):
-        self.n_dims = sources[0].n_dims
-        super(NICP, self).__init__(sources, target)
+def nicp(source, target, eps=1e-3):
+    n_dims = source.n_dims
+    source_points = source.points
 
-    def _align(self, tplt, eps, max_iter):
+    # Configuration
+    higher = 101
+    lower = 1
+    step = 5
+    transforms = []
+    iters = []
 
-        # Configuration
-        higher = 101
-        lower = 1
-        step = 5
-        transforms = []
-        iters = []
+    # Build TriMesh Source
+    tplt_tri = TriMesh(source_points).trilist
 
-        # Build TriMesh Source
-        tplt_tri = TriMesh(tplt).trilist
+    # Generate Edge List
+    tplt_edge = tplt_tri[:, [0, 1]]
+    tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [0, 2]]))
+    tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [1, 2]]))
+    tplt_edge = np.sort(tplt_edge)
 
-        # Generate Edge List
-        tplt_edge = tplt_tri[:, [0, 1]]
-        tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [0, 2]]))
-        tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [1, 2]]))
-        tplt_edge = np.sort(tplt_edge)
+    # Get Unique Edge List
+    b = np.ascontiguousarray(tplt_edge).view(
+        np.dtype((np.void, tplt_edge.dtype.itemsize * tplt_edge.shape[1]))
+    )
+    _, idx = np.unique(b, return_index=True)
+    tplt_edge = tplt_edge[idx]
 
-        # Get Unique Edge List
-        b = np.ascontiguousarray(tplt_edge).view(
-            np.dtype((np.void, tplt_edge.dtype.itemsize * tplt_edge.shape[1]))
-        )
-        _, idx = np.unique(b, return_index=True)
-        tplt_edge = tplt_edge[idx]
+    # init
+    m = tplt_edge.shape[0]
+    n = source_points.shape[0]
 
-        # init
-        m = tplt_edge.shape[0]
-        n = tplt.shape[0]
+    # get node-arc incidence matrix
+    M = np.zeros((m, n))
+    M[range(m), tplt_edge[:, 0]] = -1
+    M[range(m), tplt_edge[:, 1]] = 1
 
-        # get node-arc incidence matrix
-        M = np.zeros((m, n))
-        M[range(m), tplt_edge[:, 0]] = -1
-        M[range(m), tplt_edge[:, 1]] = 1
+    # weight matrix
+    G = np.identity(n_dims + 1)
 
-        # weight matrix
-        G = np.identity(self.n_dims+1)
+    # build the kD-tree
+    target_2d = target.points
+    kdOBJ = KDTree(target_2d)
 
-        # build the kD-tree
-        target_2d = self.target.points
-        kdOBJ = KDTree(target_2d)
+    # init transformation
+    prev_X = np.zeros((n_dims, n_dims + 1))
+    prev_X = np.tile(prev_X, n).T
+    tplt_i = source_points
 
-        # init tranformation
-        prev_X = np.zeros((self.n_dims, self.n_dims+1))
-        prev_X = np.tile(prev_X, n).T
-        tplt_i = tplt
+    # start nicp
+    # for each stiffness
+    sf = range(higher, lower, -step)
+    sf_kron = sp.kron(M, G)
+    errs = []
 
-        # start nicp
-        # for each stiffness
-        sf = range(higher, lower, -step)
-        sf_kron = sp.kron(M, G)
-        errs = []
+    for alpha in sf:
+        # get the term for stiffness
+        sf_term = alpha*sf_kron
+        # iterate until X converge
+        while True:
+            # find nearest neighbour
+            _, match = kdOBJ.query(tplt_i)
 
-        for alpha in sf:
-            # get the term for stiffness
-            sf_term = alpha*sf_kron
-            # iterate until X converge
-            while True:
-                # find nearest neighbour
-                _, match = kdOBJ.query(tplt_i)
+            # formulate target and template data, and distance term
+            U = target_2d[match, :]
 
-                # formulate target and template data, and distance term
-                U = target_2d[match, :]
+            point_size = n_dims + 1
+            D = np.zeros((n, n*point_size))
+            for k in range(n):
+                D[k, k * point_size: k * point_size + n_dims] = tplt_i[k, :]
+                D[k, k * point_size + n_dims] = 1
 
-                point_size = self.n_dims+1
-                D = np.zeros((n, n*point_size))
-                for k in range(n):
-                    D[k, k*point_size:k*point_size+self.n_dims] = tplt_i[k, :]
-                    D[k, k*point_size+self.n_dims] = 1
+            # % correspondence detection for setting weight
+            # add distance term
+            sA = sp.vstack((sf_term, D))
+            sB = sp.vstack((np.zeros((sf_term.shape[0], n_dims)), U))
+            sX = sp.linalg.spsolve(sA.T.dot(sA), sA.T.dot(sB))
+            sX = sX.todense()
 
-                # % correspondence detection for setting weight
-                # add distance term
-                sA = sp.vstack((sf_term, D))
-                sB = sp.vstack((np.zeros((sf_term.shape[0], self.n_dims)), U))
-                sX = sp.linalg.spsolve(sA.T.dot(sA), sA.T.dot(sB))
-                sX = sX.todense()
+            # deform template
+            tplt_i = D.dot(sX)
+            err = np.linalg.norm(prev_X-sX, ord='fro')
+            errs.append([alpha, err])
+            prev_X = sX
 
-                # deform template
-                tplt_i = D.dot(sX)
-                err = np.linalg.norm(prev_X-sX, ord='fro')
-                errs.append([alpha, err])
-                prev_X = sX
+            transforms.append(sX)
+            iters.append(tplt_i)
 
-                transforms.append(sX)
-                iters.append(tplt_i)
+            if err/np.sqrt(np.size(prev_X)) < eps:
+                break
 
-                if err/np.sqrt(np.size(prev_X)) < eps:
-                    break
-
-        # final result
-        fit_2d = tplt_i
-        _, point_corr = kdOBJ.query(fit_2d)
-        return fit_2d, transforms, iters, point_corr
-
+    # final result
+    fit_2d = tplt_i
+    _, point_corr = kdOBJ.query(fit_2d)
+    return fit_2d, transforms, iters, point_corr
