@@ -176,12 +176,15 @@ def nicp(source, target, eps=1e-3):
     m = unique_edge_pairs.shape[0]
 
     # Generate a "node-arc" (i.e. vertex-edge) incidence matrix.
-    M = np.zeros((m, n))
-    M[range(m), unique_edge_pairs[:, 0]] = -1
-    M[range(m), unique_edge_pairs[:, 1]] = 1
+    row = np.hstack((np.arange(m), np.arange(m)))
+    col = unique_edge_pairs.T.ravel()
+    data = np.hstack((-1 * np.ones(m), np.ones(m)))
+    M_s = sp.coo_matrix((data, (row, col)))
 
     # weight matrix
     G = np.identity(n_dims + 1)
+
+    M_kron_G_s = sp.kron(M_s, G)
 
     # build the kD-tree
     print('building KD-tree for target...')
@@ -195,7 +198,6 @@ def nicp(source, target, eps=1e-3):
     # start nicp
     # for each stiffness
     stiffness = range(upper_stiffness, lower_stiffness, -stiffness_step)
-    M_kron_G = sp.kron(M, G)
     errs = []
 
 
@@ -213,7 +215,7 @@ def nicp(source, target, eps=1e-3):
     for alpha in stiffness:
         print(alpha)
         # get the term for stiffness
-        alpha_M_kron_G = alpha * M_kron_G
+        alpha_M_kron_G_s = alpha * M_kron_G_s
 
         # iterate until X converge
         while True:
@@ -228,8 +230,9 @@ def nicp(source, target, eps=1e-3):
 
             # correspondence detection for setting weight
             # add distance term
-            A_s = sp.vstack((alpha_M_kron_G, D_s)).tocsr()
-            B_s = sp.vstack((np.zeros((alpha_M_kron_G.shape[0], n_dims)), U)).tocsr()
+            A_s = sp.vstack((alpha_M_kron_G_s, D_s)).tocsr()
+            B_s = sp.vstack((np.zeros((alpha_M_kron_G_s.shape[0], n_dims)),
+                             U)).tocsr()
             X_s = spsolve(A_s.T.dot(A_s), A_s.T.dot(B_s))
             X = X_s.toarray()
 
