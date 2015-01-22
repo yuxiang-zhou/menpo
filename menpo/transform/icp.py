@@ -154,8 +154,6 @@ def nicp(source, target, eps=1e-3):
     upper_stiffness = 101
     lower_stiffness = 1
     stiffness_step = 5
-    transforms = []
-    iters = []
 
     # Get a sorted list of edge pairs (note there will be many mirrored pairs
     # e.g. [4, 7] and [7, 4])
@@ -200,6 +198,18 @@ def nicp(source, target, eps=1e-3):
     M_kron_G = sp.kron(M, G)
     errs = []
 
+
+    # we need to prepare some indices for efficient construction of the D
+    # sparse matrix.
+    row = np.hstack((np.repeat(np.arange(n)[:, None], n_dims, axis=1).ravel(),
+                     np.arange(n)))
+
+    x = np.arange(n * h_dims).reshape((n, h_dims))
+    col = np.hstack((x[:, :3].ravel(),
+                     x[:, 3]))
+
+    o = np.ones(n)
+
     for alpha in stiffness:
         print(alpha)
         # get the term for stiffness
@@ -213,31 +223,25 @@ def nicp(source, target, eps=1e-3):
             # formulate target and template data, and distance term
             U = target.points[match, :]
 
-            D = np.zeros((n, n * h_dims))
-            for k in range(n):
-                D[k, k * h_dims: k * h_dims + n_dims] = v_i[k, :]
-                D[k, k * h_dims + n_dims] = 1
+            data = np.hstack((v_i.ravel(), o))
+            D_s = sp.coo_matrix((data, (row, col)))
 
             # correspondence detection for setting weight
             # add distance term
-            A_s = sp.vstack((alpha_M_kron_G, D))
-            B_s = sp.vstack((np.zeros((alpha_M_kron_G.shape[0], n_dims)), U))
+            A_s = sp.vstack((alpha_M_kron_G, D_s)).tocsr()
+            B_s = sp.vstack((np.zeros((alpha_M_kron_G.shape[0], n_dims)), U)).tocsr()
             X_s = spsolve(A_s.T.dot(A_s), A_s.T.dot(B_s))
-            X = X_s.todense()
+            X = X_s.toarray()
 
             # deform template
-            v_i = D.dot(X)
+            v_i = D_s.dot(X)
             err = np.linalg.norm(X_prev - X, ord='fro')
             errs.append([alpha, err])
             X_prev = X
-
-            transforms.append(X)
-            iters.append(v_i)
 
             if err / np.sqrt(np.size(X_prev)) < eps:
                 break
 
     # final result
-    fit = v_i
-    _, point_corr = kdtree.query(fit)
-    return fit, transforms, iters, point_corr
+    point_corr = kdtree.query(v_i)[1]
+    return v_i, point_corr
