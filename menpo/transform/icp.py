@@ -1,9 +1,9 @@
 from menpo.shape import PointCloud
 from menpo.transform.groupalign.base import MultipleAlignment
 from menpo.math import principal_component_decomposition as pca
-from menpo.shape import TriMesh
 import numpy as np
-from scipy.spatial import KDTree
+from scipy.spatial import cKDTree as KDTree
+from scipy.sparse.linalg import spsolve
 import scipy.sparse as sp
 
 
@@ -141,96 +141,103 @@ class ICP(MultipleAlignment):
 
 
 def nicp(source, target, eps=1e-3):
+    r"""
+    Deforms the source trimesh to align with to optimally the target.
+    """
     n_dims = source.n_dims
-    source_points = source.points
+    # Homogeneous dimension (1 extra for translation effects)
+    h_dims = n_dims + 1
+    points = source.points
+    trilist = source.trilist
 
     # Configuration
-    higher = 101
-    lower = 1
-    step = 5
+    upper_stiffness = 101
+    lower_stiffness = 1
+    stiffness_step = 5
     transforms = []
     iters = []
 
-    # Build TriMesh Source
-    tplt_tri = TriMesh(source_points).trilist
+    # Get a sorted list of edge pairs (note there will be many mirrored pairs
+    # e.g. [4, 7] and [7, 4])
+    edge_pairs = np.sort(np.vstack((trilist[:, [0, 1]],
+                                    trilist[:, [0, 2]],
+                                    trilist[:, [1, 2]])))
 
-    # Generate Edge List
-    tplt_edge = tplt_tri[:, [0, 1]]
-    tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [0, 2]]))
-    tplt_edge = np.vstack((tplt_edge, tplt_tri[:, [1, 2]]))
-    tplt_edge = np.sort(tplt_edge)
+    # We want to remove duplicates - this is a little hairy, but basically we
+    # get a view on the array where each pair is considered by numpy to be
+    # one item
+    edge_pair_view = np.ascontiguousarray(edge_pairs).view(
+        np.dtype((np.void, edge_pairs.dtype.itemsize * edge_pairs.shape[1])))
+    # Now we can use this view to ask for only unique edges...
+    unique_edge_index = np.unique(edge_pair_view, return_index=True)[1]
+    # And use that to filter our original list down
+    unique_edge_pairs = edge_pairs[unique_edge_index]
 
-    # Get Unique Edge List
-    b = np.ascontiguousarray(tplt_edge).view(
-        np.dtype((np.void, tplt_edge.dtype.itemsize * tplt_edge.shape[1]))
-    )
-    _, idx = np.unique(b, return_index=True)
-    tplt_edge = tplt_edge[idx]
+    # record the number of unique edges and the number of points
+    n = points.shape[0]
+    m = unique_edge_pairs.shape[0]
 
-    # init
-    m = tplt_edge.shape[0]
-    n = source_points.shape[0]
-
-    # get node-arc incidence matrix
+    # Generate a "node-arc" (i.e. vertex-edge) incidence matrix.
     M = np.zeros((m, n))
-    M[range(m), tplt_edge[:, 0]] = -1
-    M[range(m), tplt_edge[:, 1]] = 1
+    M[range(m), unique_edge_pairs[:, 0]] = -1
+    M[range(m), unique_edge_pairs[:, 1]] = 1
 
     # weight matrix
     G = np.identity(n_dims + 1)
 
     # build the kD-tree
-    target_2d = target.points
-    kdOBJ = KDTree(target_2d)
+    print('building KD-tree for target...')
+    kdtree = KDTree(target.points)
 
     # init transformation
-    prev_X = np.zeros((n_dims, n_dims + 1))
-    prev_X = np.tile(prev_X, n).T
-    tplt_i = source_points
+    X_prev = np.zeros((n_dims, n_dims + 1))
+    X_prev = np.tile(X_prev, n).T
+    v_i = points
 
     # start nicp
     # for each stiffness
-    sf = range(higher, lower, -step)
-    sf_kron = sp.kron(M, G)
+    stiffness = range(upper_stiffness, lower_stiffness, -stiffness_step)
+    M_kron_G = sp.kron(M, G)
     errs = []
 
-    for alpha in sf:
+    for alpha in stiffness:
+        print(alpha)
         # get the term for stiffness
-        sf_term = alpha*sf_kron
+        alpha_M_kron_G = alpha * M_kron_G
+
         # iterate until X converge
         while True:
             # find nearest neighbour
-            _, match = kdOBJ.query(tplt_i)
+            match = kdtree.query(v_i)[1]
 
             # formulate target and template data, and distance term
-            U = target_2d[match, :]
+            U = target.points[match, :]
 
-            point_size = n_dims + 1
-            D = np.zeros((n, n*point_size))
+            D = np.zeros((n, n * h_dims))
             for k in range(n):
-                D[k, k * point_size: k * point_size + n_dims] = tplt_i[k, :]
-                D[k, k * point_size + n_dims] = 1
+                D[k, k * h_dims: k * h_dims + n_dims] = v_i[k, :]
+                D[k, k * h_dims + n_dims] = 1
 
-            # % correspondence detection for setting weight
+            # correspondence detection for setting weight
             # add distance term
-            sA = sp.vstack((sf_term, D))
-            sB = sp.vstack((np.zeros((sf_term.shape[0], n_dims)), U))
-            sX = sp.linalg.spsolve(sA.T.dot(sA), sA.T.dot(sB))
-            sX = sX.todense()
+            A_s = sp.vstack((alpha_M_kron_G, D))
+            B_s = sp.vstack((np.zeros((alpha_M_kron_G.shape[0], n_dims)), U))
+            X_s = spsolve(A_s.T.dot(A_s), A_s.T.dot(B_s))
+            X = X_s.todense()
 
             # deform template
-            tplt_i = D.dot(sX)
-            err = np.linalg.norm(prev_X-sX, ord='fro')
+            v_i = D.dot(X)
+            err = np.linalg.norm(X_prev - X, ord='fro')
             errs.append([alpha, err])
-            prev_X = sX
+            X_prev = X
 
-            transforms.append(sX)
-            iters.append(tplt_i)
+            transforms.append(X)
+            iters.append(v_i)
 
-            if err/np.sqrt(np.size(prev_X)) < eps:
+            if err / np.sqrt(np.size(X_prev)) < eps:
                 break
 
     # final result
-    fit_2d = tplt_i
-    _, point_corr = kdOBJ.query(fit_2d)
-    return fit_2d, transforms, iters, point_corr
+    fit = v_i
+    _, point_corr = kdtree.query(fit)
+    return fit, transforms, iters, point_corr
