@@ -241,3 +241,17 @@ def nicp(source, target, eps=1e-3):
     fit = v_i
     _, point_corr = kdtree.query(fit)
     return fit, transforms, iters, point_corr
+
+
+def normalise_points(source, target):
+    n_source_points = source.shape[0]
+    all_points = np.vstack((source.points, target.points))
+    p_min = np.min(all_points, axis=0)
+    p_max = np.max(all_points, axis=0)
+
+    norm_points = (all_points - p_min) / (p_max - p_min) * 2 - 1
+
+    return (
+        PointCloud(norm_points[:n_source_points]),
+        PointCloud(norm_points[n_source_points:])
+    )
