@@ -2001,6 +2001,82 @@ def bu3dfe_83(landmark_group):
     return group, new_landmark_group
 
 
+def ear_55(landmark_group):
+    """
+    Apply the ibug's "standard" 68 point semantic labels (based on the
+    original semantic labels of multiPIE) to the landmark group.
+
+    The group label will be 'ibug_face_68'.
+
+    The semantic labels applied are as follows:
+
+      - jaw
+      - left_eyebrow
+      - right_eyebrow
+      - nose
+      - left_eye
+      - right_eye
+      - mouth
+
+    Parameters
+    ----------
+    landmark_group : :map:`LandmarkGroup`
+        The landmark group to apply semantic labels to.
+
+    Returns
+    -------
+    group : `str`
+        The group label: 'ibug_face_68'
+    landmark_group : :map:`LandmarkGroup`
+        New landmark group.
+
+    Raises
+    ------
+    :class:`menpo.landmark.exceptions.LabellingError`
+        If the given landmark group contains less than 68 points
+
+    References
+    ----------
+    .. [1] http://www.multipie.org/
+    """
+    from menpo.shape import PointUndirectedGraph
+
+    group = 'ear_55'
+    n_points = 55
+    _validate_input(landmark_group, 55, group)
+
+    outer_bound_indices = np.arange(0, 20)
+    inner_bound_indices = np.arange(20, 35)
+    antihelix_indices = np.arange(35, 50)
+    crus_antihelix_indices = np.arange(50, 55)
+
+    outer_bound_connectivity = _connectivity_from_array(outer_bound_indices)
+    inner_bound_connectivity = _connectivity_from_array(inner_bound_indices)
+    antihelix_connectivity = _connectivity_from_array(antihelix_indices)
+    crus_antihelix_connectivity = _connectivity_from_array(
+        crus_antihelix_indices
+    )
+
+    total_connectivity = np.vstack([
+        outer_bound_connectivity, inner_bound_connectivity,
+        antihelix_connectivity, crus_antihelix_connectivity
+    ])
+
+    new_landmark_group = LandmarkGroup(
+        PointUndirectedGraph(landmark_group.lms.points, total_connectivity),
+        OrderedDict([('all', np.ones(n_points, dtype=np.bool))]))
+
+    new_landmark_group['outer_bound'] = outer_bound_indices
+    new_landmark_group['inner_bound'] = inner_bound_indices
+    new_landmark_group['antihelix'] = antihelix_indices
+    new_landmark_group['crus_antihelix'] = crus_antihelix_indices
+
+    del new_landmark_group['all']  # Remove pointless all group
+
+    return group, new_landmark_group
+
+
+
 def labeller(landmarkable, group, label_func):
     """
     Takes a landmarkable object and a group label indicating which
