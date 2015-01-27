@@ -207,8 +207,8 @@ def nicp(source, target, eps=1e-3):
                      np.arange(n)))
 
     x = np.arange(n * h_dims).reshape((n, h_dims))
-    col = np.hstack((x[:, :3].ravel(),
-                     x[:, 3]))
+    col = np.hstack((x[:, :n_dims].ravel(),
+                     x[:, n_dims]))
 
     o = np.ones(n)
 
