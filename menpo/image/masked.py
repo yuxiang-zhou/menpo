@@ -4,7 +4,6 @@ import numpy as np
 binary_erosion = None  # expensive, from scipy.ndimage
 
 from menpo.visualize.base import ImageViewer
-gradient = None  # avoid circular reference, from menpo.feature
 
 from .base import Image
 from .boolean import BooleanImage
@@ -12,24 +11,24 @@ from .boolean import BooleanImage
 
 class MaskedImage(Image):
     r"""
-    Represents an n-dimensional k-channel image, which has a mask.
+    Represents an `n`-dimensional `k`-channel image, which has a mask.
     Images can be masked in order to identify a region of interest. All
     images implicitly have a mask that is defined as the the entire image.
     The mask is an instance of :map:`BooleanImage`.
 
     Parameters
     ----------
-    image_data :  ``(M, N ..., Q, C)`` `ndarray`
-        The pixel data for the image, where the last axis represents the
+    image_data :  ``(C, M, N ..., Q)`` `ndarray`
+        The pixel data for the image, where the first axis represents the
         number of channels.
-    mask : ``(M, N)`` `bool` `ndarray` or :map:`BooleanImage`, optional
+    mask : ``(M, N)`` `bool ndarray` or :map:`BooleanImage`, optional
         A binary array representing the mask. Must be the same
         shape as the image. Only one mask is supported for an image (so the
         mask is applied to every channel equally).
     copy: `bool`, optional
-        If ``False``, the image_data will not be copied on assignment. If a mask
-        is provided, this also won't be copied. In general this should only be
-        used if you know what you are doing.
+        If ``False``, the ``image_data`` will not be copied on assignment. If a
+        mask is provided, this also won't be copied. In general this should only
+        be used if you know what you are doing.
 
     Raises
     ------
@@ -57,35 +56,11 @@ class MaskedImage(Image):
                                                    mask.shape))
         else:
             # no mask provided - make the default.
-            self.mask = BooleanImage.blank(self.shape, fill=True)
-
-    def as_unmasked(self, copy=True):
-        r"""
-        Return a copy of this image without the masking behavior.
-
-        By default the mask is simply discarded. In the future more options
-        may be possible.
-
-        Parameters
-        ----------
-        copy : `bool`, optional
-            If ``False``, the produced :map:`Image` will share pixels with
-            `self`. Only suggested to be used for performance.
-
-        Returns
-        -------
-        image : :map:`Image`
-            An image with the same pixels and landmarks as this one, but with
-            no mask.
-        """
-        img = Image(self.pixels, copy=copy)
-        img.landmarks = self.landmarks
-        return img
+            self.mask = BooleanImage.init_blank(self.shape, fill=True)
 
     @classmethod
-    def blank(cls, shape, n_channels=1, fill=0, dtype=np.float, mask=None):
-        r"""
-        Returns a blank image
+    def init_blank(cls, shape, n_channels=1, fill=0, dtype=np.float, mask=None):
+        r"""Generate a blank masked image
 
         Parameters
         ----------
@@ -98,33 +73,56 @@ class MaskedImage(Image):
             The value to fill all pixels with.
         dtype: `numpy datatype`, optional
             The datatype of the image.
-        mask: ``(M, N)`` `bool` `ndarray` or :map:`BooleanImage`
+        mask: ``(M, N)`` `bool ndarray` or :map:`BooleanImage`
             An optional mask that can be applied to the image. Has to have a
             shape equal to that of the image.
 
         Notes
         -----
-        Subclasses of `MaskedImage` need to overwrite this method and
-        explicitly call this superclass method:
+        Subclasses of :map:`MaskedImage` need to overwrite this method and
+        explicitly call this superclass method
 
         ::
 
-            super(SubClass, cls).blank(shape,**kwargs)
+            super(SubClass, cls).init_blank(shape,**kwargs)
 
-        in order to appropriately propagate the SubClass type to cls.
+        in order to appropriately propagate the subclass type to ``cls``.
 
         Returns
         -------
-        blank_image : :class:`MaskedImage`
+        blank_image : :map:`MaskedImage`
             A new masked image of the requested size.
         """
         # Ensure that the '+' operator means concatenate tuples
         shape = tuple(np.ceil(shape).astype(np.int))
         if fill == 0:
-            pixels = np.zeros(shape + (n_channels,), dtype=dtype)
+            pixels = np.zeros((n_channels,) + shape, dtype=dtype)
         else:
-            pixels = np.ones(shape + (n_channels,), dtype=dtype) * fill
+            pixels = np.ones((n_channels,) + shape, dtype=dtype) * fill
         return cls(pixels, copy=False, mask=mask)
+
+    def as_unmasked(self, copy=True):
+        r"""
+        Return a copy of this image without the masking behavior.
+
+        By default the mask is simply discarded. In the future more options
+        may be possible.
+
+        Parameters
+        ----------
+        copy : `bool`, optional
+            If ``False``, the produced :map:`Image` will share pixels with
+            ``self``. Only suggested to be used for performance.
+
+        Returns
+        -------
+        image : :map:`Image`
+            An image with the same pixels and landmarks as this one, but with
+            no mask.
+        """
+        img = Image(self.pixels, copy=copy)
+        img.landmarks = self.landmarks
+        return img
 
     def n_true_pixels(self):
         r"""
@@ -170,11 +168,11 @@ class MaskedImage(Image):
         r"""
         Get the pixels covered by the `True` values in the mask.
 
-        :type: ``(mask.n_true, n_channels)`` `ndarray`
+        :type: ``(n_channels, mask.n_true)`` `ndarray`
         """
         if self.mask.all_true():
             return self.pixels
-        return self.pixels[self.mask.mask]
+        return self.pixels[..., self.mask.mask]
 
     def set_masked_pixels(self, pixels, copy=True):
         r"""
@@ -192,11 +190,11 @@ class MaskedImage(Image):
         Raises
         ------
         Warning
-            If the copy=False flag cannot be honored.
+            If the ``copy=False`` flag cannot be honored.
         """
         if self.mask.all_true():
             # reshape the vector into the image again
-            pixels = pixels.reshape(self.shape + (self.n_channels,))
+            pixels = pixels.reshape((self.n_channels,) + self.shape)
             if not copy:
                 if not pixels.flags.c_contiguous:
                     warn('The copy flag was NOT honoured. A copy HAS been '
@@ -208,7 +206,7 @@ class MaskedImage(Image):
                 pixels = pixels.copy()
             self.pixels = pixels
         else:
-            self.pixels[self.mask.mask] = pixels
+            self.pixels[..., self.mask.mask] = pixels
             # oh dear, couldn't avoid a copy. Did the user try to?
             if not copy:
                 warn('The copy flag was NOT honoured. A copy HAS been made. '
@@ -230,20 +228,20 @@ class MaskedImage(Image):
         ----------
         keep_channels : `bool`, optional
 
-            ========== ====================================
+            ========== =================================
             Value      Return shape
-            ========== ====================================
-            `True`     (`mask.n_true`,`n_channels`)
-            `False`    (`mask.n_true` x `n_channels`,)
-            ========== ====================================
+            ========== =================================
+            ``True``     ``(mask.n_true, n_channels)``
+            ``False``    ``(mask.n_true * n_channels,)``
+            ========== =================================
 
         Returns
         -------
-        vectorized_image : (shape given by `keep_channels`) `ndarray`
+        vectorized_image : (shape given by ``keep_channels``) `ndarray`
             Vectorized image
         """
         if keep_channels:
-            return self.masked_pixels().reshape([-1, self.n_channels])
+            return self.masked_pixels().reshape([self.n_channels, -1])
         else:
             return self.masked_pixels().ravel()
 
@@ -255,7 +253,7 @@ class MaskedImage(Image):
 
         On masked images, the vector is always copied.
 
-        The `n_channels` argument is useful for when we want to add an extra
+        The ``n_channels`` argument is useful for when we want to add an extra
         channel to an image but maintain the shape. For example, when
         calculating the gradient.
 
@@ -278,14 +276,14 @@ class MaskedImage(Image):
         # This is useful for when we want to add an extra channel to an image
         # but maintain the shape. For example, when calculating the gradient
         n_channels = self.n_channels if n_channels is None else n_channels
-        # Creates zeros of size (M x N x ... x n_channels)
+        # Creates zeros of size (n_channels x M x N x ...)
         if self.mask.all_true():
             # we can just reshape the array!
-            image_data = vector.reshape((self.shape + (n_channels,)))
+            image_data = vector.reshape(((n_channels,) + self.shape))
         else:
-            image_data = np.zeros(self.shape + (n_channels,))
-            pixels_per_channel = vector.reshape((-1, n_channels))
-            image_data[self.mask.mask] = pixels_per_channel
+            image_data = np.zeros((n_channels,) + self.shape)
+            pixels_per_channel = vector.reshape((n_channels, -1))
+            image_data[..., self.mask.mask] = pixels_per_channel
         new_image = MaskedImage(image_data, mask=self.mask)
         new_image.landmarks = self.landmarks
         return new_image
@@ -300,20 +298,17 @@ class MaskedImage(Image):
         ----------
         vector : ``(n_parameters,)``
             A flattened vector of all pixels and channels of an image.
-
-        copy: `bool`, optional
+        copy : `bool`, optional
             If ``False``, the vector will be set as the pixels with no copy
             made.
             If ``True`` a copy of the vector is taken.
 
         Raises
         ------
-
         Warning
-            If copy=False cannot be honored.
-
+            If ``copy=False`` cannot be honored.
         """
-        self.set_masked_pixels(vector.reshape((-1, self.n_channels)),
+        self.set_masked_pixels(vector.reshape((self.n_channels, -1)),
                                copy=copy)
 
     def _view_2d(self, figure_id=None, new_figure=False, channels=None,
@@ -323,8 +318,8 @@ class MaskedImage(Image):
                  axes_font_weight='normal', axes_x_limits=None,
                  axes_y_limits=None, figure_size=(10, 8)):
         r"""
-        View the image using the default image viewer. Currently only
-        supports the rendering of 2D images.
+        View the image using the default image viewer. This method will appear
+        on the Image as ``view`` if the Image is 2D.
 
         Returns
         -------
@@ -332,42 +327,49 @@ class MaskedImage(Image):
             The id of the figure to be used.
         new_figure : `bool`, optional
             If ``True``, a new figure is created.
-        channels : `int` or `list` of `int` or ``all`` or `None`
+        channels : `int` or `list` of `int` or ``all`` or ``None``
             If `int` or `list` of `int`, the specified channel(s) will be
             rendered. If ``all``, all the channels will be rendered in subplots.
-            If `None` and the image is RGB, it will be rendered in RGB mode.
-            If `None` and the image is not RGB, it is equivalent to ``all``.
+            If ``None`` and the image is RGB, it will be rendered in RGB mode.
+            If ``None`` and the image is not RGB, it is equivalent to ``all``.
         masked : `bool`, optional
             If ``True``, only the masked pixels will be rendered.
-        interpolation : {``none``, ``nearest``, ``bilinear``, ``bicubic``,
-                         ``spline16``, ``spline36``, ``hanning``, ``hamming``,
-                         ``hermite``, ``kaiser``, ``quadric``, ``catrom``,
-                         ``gaussian``, ``bessel``, ``mitchell``, ``sinc``,
-                         ``lanczos``}, optional
+        interpolation : See Below, optional
             The interpolation used to render the image. For example, if
             ``bilinear``, the image will be smooth and if ``nearest``, the
             image will be pixelated.
+            Example options ::
+
+                {none, nearest, bilinear, bicubic, spline16, spline36,
+                hanning, hamming, hermite, kaiser, quadric, catrom, gaussian,
+                bessel, mitchell, sinc, lanczos}
+
         alpha : `float`, optional
             The alpha blending value, between 0 (transparent) and 1 (opaque).
         render_axes : `bool`, optional
             If ``True``, the axes will be rendered.
-        axes_font_name : {``serif``, ``sans-serif``, ``cursive``, ``fantasy``,
-                          ``monospace``}, optional
+        axes_font_name : See Below, optional
             The font of the axes.
+            Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
         axes_font_size : `int`, optional
             The font size of the axes.
         axes_font_style : {``normal``, ``italic``, ``oblique``}, optional
             The font style of the axes.
-        axes_font_weight : {``ultralight``, ``light``, ``normal``, ``regular``,
-                            ``book``, ``medium``, ``roman``, ``semibold``,
-                            ``demibold``, ``demi``, ``bold``, ``heavy``,
-                            ``extra bold``, ``black``}, optional
+        axes_font_weight : See Below, optional
             The font weight of the axes.
-        axes_x_limits : (`float`, `float`) or `None`, optional
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
+        axes_x_limits : (`float`, `float`) `tuple` or ``None``, optional
             The limits of the x axis.
-        axes_y_limits : (`float`, `float`) or `None`, optional
+        axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
             The limits of the y axis.
-        figure_size : (`float`, `float`) or `None`, optional
+        figure_size : (`float`, `float`) `tuple` or ``None``, optional
             The size of the figure in inches.
 
         Raises
@@ -376,9 +378,8 @@ class MaskedImage(Image):
             If Image is not 2D
         """
         mask = self.mask.mask if masked else None
-        pixels_to_view = self.pixels
         return ImageViewer(figure_id, new_figure, self.n_dims,
-                           pixels_to_view, channels=channels,
+                           self.pixels, channels=channels,
                            mask=mask).render(render_axes=render_axes,
                                              axes_font_name=axes_font_name,
                                              axes_font_size=axes_font_size,
@@ -420,18 +421,19 @@ class MaskedImage(Image):
                            axes_x_limits=None, axes_y_limits=None,
                            figure_size=(10, 8)):
         """
-        Visualize the landmarks.
+        Visualize the landmarks. This method will appear on the Image as
+        ``view_landmarks`` if the Image is 2D.
 
         Parameters
         ----------
-        channels : `int` or `list` of `int` or ``all`` or `None`
+        channels : `int` or `list` of `int` or ``all`` or ``None``
             If `int` or `list` of `int`, the specified channel(s) will be
             rendered. If ``all``, all the channels will be rendered in subplots.
-            If `None` and the image is RGB, it will be rendered in RGB mode.
-            If `None` and the image is not RGB, it is equivalent to ``all``.
+            If ``None`` and the image is RGB, it will be rendered in RGB mode.
+            If ``None`` and the image is not RGB, it is equivalent to ``all``.
         masked : `bool`, optional
             If ``True``, only the masked pixels will be rendered.
-        group : `str` or `None`, optional
+        group : `str` or``None`` optionals
             The landmark group to be visualized. If ``None`` and there are more
             than one landmark groups, an error is raised.
         with_labels : ``None`` or `str` or `list` of `str`, optional
@@ -444,85 +446,114 @@ class MaskedImage(Image):
             The id of the figure to be used.
         new_figure : `bool`, optional
             If ``True``, a new figure is created.
-        interpolation : {``none``, ``nearest``, ``bilinear``, ``bicubic``,
-                         ``spline16``, ``spline36``, ``hanning``, ``hamming``,
-                         ``hermite``, ``kaiser``, ``quadric``, ``catrom``,
-                         ``gaussian``, ``bessel``, ``mitchell``, ``sinc``,
-                         ``lanczos``}, optional
+        interpolation : See Below, optional
             The interpolation used to render the image. For example, if
             ``bilinear``, the image will be smooth and if ``nearest``, the
-            image will be pixelated.
+            image will be pixelated. Example options ::
+
+                {none, nearest, bilinear, bicubic, spline16, spline36, hanning,
+                hamming, hermite, kaiser, quadric, catrom, gaussian, bessel,
+                mitchell, sinc, lanczos}
+
         alpha : `float`, optional
             The alpha blending value, between 0 (transparent) and 1 (opaque).
         render_lines : `bool`, optional
             If ``True``, the edges will be rendered.
-        line_colour : {``r``, ``g``, ``b``, ``c``, ``m``, ``k``, ``w``} or
-                      ``(3, )`` `ndarray`, optional
+        line_colour : See Below, optional
             The colour of the lines.
-        line_style : {``-``, ``--``, ``-.``, ``:``}, optional
+            Example options::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
+        line_style : ``{-, --, -., :}``, optional
             The style of the lines.
         line_width : `float`, optional
             The width of the lines.
         render_markers : `bool`, optional
             If ``True``, the markers will be rendered.
-        marker_style : {``.``, ``,``, ``o``, ``v``, ``^``, ``<``, ``>``, ``+``,
-                        ``x``, ``D``, ``d``, ``s``, ``p``, ``*``, ``h``, ``H``,
-                        ``1``, ``2``, ``3``, ``4``, ``8``}, optional
-            The style of the markers.
+        marker_style : See Below, optional
+            The style of the markers. Example options ::
+
+                {., ,, o, v, ^, <, >, +, x, D, d, s, p, *, h, H, 1, 2, 3, 4, 8}
+
         marker_size : `int`, optional
             The size of the markers in points^2.
-        marker_face_colour : {``r``, ``g``, ``b``, ``c``, ``m``, ``k``, ``w``}
-                             or ``(3, )`` `ndarray`, optional
+        marker_face_colour : See Below, optional
             The face (filling) colour of the markers.
-        marker_edge_colour : {``r``, ``g``, ``b``, ``c``, ``m``, ``k``, ``w``}
-                             or ``(3, )`` `ndarray`, optional
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
+        marker_edge_colour : See Below, optional
             The edge colour of the markers.
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
         marker_edge_width : `float`, optional
             The width of the markers' edge.
         render_numbering : `bool`, optional
             If ``True``, the landmarks will be numbered.
-        numbers_horizontal_align : {``center``, ``right``, ``left``}, optional
+        numbers_horizontal_align : ``{center, right, left}``, optional
             The horizontal alignment of the numbers' texts.
-        numbers_vertical_align : {``center``, ``top``, ``bottom``,
-                                  ``baseline``}, optional
+        numbers_vertical_align : ``{center, top, bottom, baseline}``, optional
             The vertical alignment of the numbers' texts.
-        numbers_font_name : {``serif``, ``sans-serif``, ``cursive``,
-                             ``fantasy``, ``monospace``}, optional
-            The font of the numbers.
+        numbers_font_name : See Below, optional
+            The font of the numbers. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
         numbers_font_size : `int`, optional
             The font size of the numbers.
-        numbers_font_style : {``normal``, ``italic``, ``oblique``}, optional
+        numbers_font_style : ``{normal, italic, oblique}``, optional
             The font style of the numbers.
-        numbers_font_weight : {``ultralight``, ``light``, ``normal``,
-                               ``regular``, ``book``, ``medium``, ``roman``,
-                               ``semibold``, ``demibold``, ``demi``, ``bold``,
-                               ``heavy``, ``extra bold``, ``black``}, optional
+        numbers_font_weight : See Below, optional
             The font weight of the numbers.
-        numbers_font_colour : {``r``, ``g``, ``b``, ``c``, ``m``, ``k``, ``w``}
-                              or ``(3, )`` `ndarray`, optional
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
+        numbers_font_colour : See Below, optional
             The font colour of the numbers.
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
         render_legend : `bool`, optional
             If ``True``, the legend will be rendered.
         legend_title : `str`, optional
             The title of the legend.
-        legend_font_name : {``serif``, ``sans-serif``, ``cursive``,
-                            ``fantasy``, ``monospace``}, optional
-            The font of the legend.
-        legend_font_style : {``normal``, ``italic``, ``oblique``}, optional
+        legend_font_name : See below, optional
+            The font of the legend. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
+        legend_font_style : ``{normal, italic, oblique}``, optional
             The font style of the legend.
         legend_font_size : `int`, optional
             The font size of the legend.
-        legend_font_weight : {``ultralight``, ``light``, ``normal``,
-                              ``regular``, ``book``, ``medium``, ``roman``,
-                              ``semibold``, ``demibold``, ``demi``, ``bold``,
-                              ``heavy``, ``extra bold``, ``black``}, optional
+        legend_font_weight : See Below, optional
             The font weight of the legend.
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
         legend_marker_scale : `float`, optional
             The relative size of the legend markers with respect to the original
         legend_location : `int`, optional
             The location of the legend. The predefined values are:
 
-            =============== ===
+            =============== ==
             'best'          0
             'upper right'   1
             'upper left'    2
@@ -534,9 +565,9 @@ class MaskedImage(Image):
             'lower center'  8
             'upper center'  9
             'center'        10
-            =============== ===
+            =============== ==
 
-        legend_bbox_to_anchor : (`float`, `float`), optional
+        legend_bbox_to_anchor : (`float`, `float`) `tuple`, optional
             The bbox that the legend will be anchored.
         legend_border_axes_pad : `float`, optional
             The pad between the axes and legend border.
@@ -556,23 +587,27 @@ class MaskedImage(Image):
             If ``True``, the frame's corners will be rounded (fancybox).
         render_axes : `bool`, optional
             If ``True``, the axes will be rendered.
-        axes_font_name : {``serif``, ``sans-serif``, ``cursive``, ``fantasy``,
-                          ``monospace``}, optional
-            The font of the axes.
+        axes_font_name : See Below, optional
+            The font of the axes. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
         axes_font_size : `int`, optional
             The font size of the axes.
-        axes_font_style : {``normal``, ``italic``, ``oblique``}, optional
+        axes_font_style : ``{normal, italic, oblique}``, optional
             The font style of the axes.
-        axes_font_weight : {``ultralight``, ``light``, ``normal``, ``regular``,
-                            ``book``, ``medium``, ``roman``, ``semibold``,
-                            ``demibold``, ``demi``, ``bold``, ``heavy``,
-                            ``extra bold``, ``black``}, optional
+        axes_font_weight : See Below, optional
             The font weight of the axes.
-        axes_x_limits : (`float`, `float`) or `None`, optional
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold,demibold, demi, bold, heavy, extra bold, black}
+
+        axes_x_limits : (`float`, `float`) `tuple` or ``None`` optional
             The limits of the x axis.
-        axes_y_limits : (`float`, `float`) or `None`, optional
+        axes_y_limits : (`float`, `float`) `tuple` or ``None`` optional
             The limits of the y axis.
-        figure_size : (`float`, `float`) or `None`, optional
+        figure_size : (`float`, `float`) `tuple` or ``None`` optional
             The size of the figure in inches.
 
         Raises
@@ -608,7 +643,7 @@ class MaskedImage(Image):
         relative to the newly cropped image.
 
         Parameters
-        -----------
+        ----------
         min_indices: ``(n_dims, )`` `ndarray`
             The minimum index over each dimension.
         max_indices: ``(n_dims, )`` `ndarray`
@@ -626,10 +661,11 @@ class MaskedImage(Image):
         Raises
         ------
         ValueError
-            min_indices and max_indices both have to be of length n_dims.
-            All max_indices must be greater than min_indices.
-        ImageBoundaryError
-            Raised if constrain_to_boundary is False, and an attempt is made
+            ``min_indices`` and ``max_indices`` both have to be of length
+            ``n_dims``. All ``max_indices`` must be greater than
+            ``min_indices``.
+        :map`ImageBoundaryError`
+            Raised if ``constrain_to_boundary=False``, and an attempt is made
             to crop the image in a way that violates the image bounds.
         """
         # crop our image
@@ -654,12 +690,12 @@ class MaskedImage(Image):
             If ``True`` the crop will be snapped to not go beyond this images
             boundary. If ``False``, an :map:`ImageBoundaryError` will be raised
             if an attempt is made to go beyond the edge of the image. Note that
-            is only possible if boundary != 0.
+            is only possible if ``boundary != 0``.
 
         Raises
         ------
         ImageBoundaryError
-            Raised if constrain_to_boundary is `False`, and an attempt is
+            Raised if 11constrain_to_boundary=False`1, and an attempt is
             made to crop the image in a way that violates the image bounds.
         """
         min_indices, max_indices = self.mask.bounds_true(
@@ -682,21 +718,27 @@ class MaskedImage(Image):
             Defines, for each pixel location on the template, which pixel
             location should be sampled from on this image.
         warp_landmarks : `bool`, optional
-            If ``True``, `warped_image` will have the same landmark dictionary
-            as `self`, but with each landmark updated to the warped position.
+            If ``True``, result will have the same landmark dictionary
+            as ``self``, but with each landmark updated to the warped position.
         order : `int`, optional
-            The order of interpolation. The order has to be in the range 0-5:
-            * 0: Nearest-neighbor
-            * 1: Bi-linear (default)
-            * 2: Bi-quadratic
-            * 3: Bi-cubic
-            * 4: Bi-quartic
-            * 5: Bi-quintic
-        mode : {``constant, ``nearest``, ``reflect`` or ``wrap``}, optional
+            The order of interpolation. The order has to be in the range [0,5]
+
+            ========= =====================
+            Order     Interpolation
+            ========= =====================
+            0         Nearest-neighbor
+            1         Bi-linear *(default)*
+            2         Bi-quadratic
+            3         Bi-cubic
+            4         Bi-quartic
+            5         Bi-quintic
+            ========= =====================
+
+        mode : ``{constant, nearest, reflect, wrap}``, optional
             Points outside the boundaries of the input are filled according
             to the given mode.
         cval : `float`, optional
-            Used in conjunction with mode ``'constant'``, the value outside
+            Used in conjunction with mode ``constant``, the value outside
             the image boundaries.
 
         Returns
@@ -731,21 +773,27 @@ class MaskedImage(Image):
             Defines, for each index on template_shape, which pixel location
             should be sampled from on this image.
         warp_landmarks : `bool`, optional
-            If ``True``, `warped_image` will have the same landmark dictionary
+            If ``True``, result will have the same landmark dictionary
             as self, but with each landmark updated to the warped position.
         order : `int`, optional
-            The order of interpolation. The order has to be in the range 0-5:
-            * 0: Nearest-neighbor
-            * 1: Bi-linear (default)
-            * 2: Bi-quadratic
-            * 3: Bi-cubic
-            * 4: Bi-quartic
-            * 5: Bi-quintic
-        mode : {``constant, ``nearest``, ``reflect`` or ``wrap``}, optional
+            The order of interpolation. The order has to be in the range [0,5]
+
+            ========= =====================
+            Order     Interpolation
+            ========= =====================
+            0         Nearest-neighbor
+            1         Bi-linear *(default)*
+            2         Bi-quadratic
+            3         Bi-cubic
+            4         Bi-quartic
+            5         Bi-quintic
+            ========= =====================
+
+        mode : ``{constant, nearest, reflect, wrap}``, optional
             Points outside the boundaries of the input are filled according
             to the given mode.
         cval : `float`, optional
-            Used in conjunction with mode ``'constant'``, the value outside
+            Used in conjunction with mode ``constant``, the value outside
             the image boundaries.
 
         Returns
@@ -775,9 +823,9 @@ class MaskedImage(Image):
 
         Parameters
         ----------
-        mode : {``all``, ``per_channel``}, optional
-            If ``'all'``, the normalization is over all channels. If
-            ``'per_channel'``, each channel individually is mean centred and
+        mode : ``{all, per_channel}``, optional
+            If ``all``, the normalization is over all channels. If
+            ``per_channel``, each channel individually is mean centred and
             normalized in variance.
         limit_to_mask : `bool`, optional
             If ``True``, the normalization is only performed wrt the masked
@@ -796,9 +844,9 @@ class MaskedImage(Image):
 
         Parameters
         ----------
-        mode : {``all``, ``per_channel``}, optional
-            If ``'all'``, the normalization is over all channels. If
-            ``'per_channel'``, each channel individually is mean centred and
+        mode : ``{all, per_channel}``, optional
+            If ``all``, the normalization is over all channels. If
+            ``per_channel``, each channel individually is mean centred and
             normalized in variance.
         limit_to_mask : `bool`, optional
             If ``True``, the normalization is only performed wrt the masked
@@ -821,10 +869,9 @@ class MaskedImage(Image):
         if mode == 'all':
             centered_pixels = pixels - np.mean(pixels)
             scale_factor = scale_func(centered_pixels)
-
         elif mode == 'per_channel':
-            centered_pixels = pixels - np.mean(pixels, axis=0)
-            scale_factor = scale_func(centered_pixels, axis=0)
+            centered_pixels = pixels - np.mean(pixels, axis=1)[..., None]
+            scale_factor = scale_func(centered_pixels, axis=1)[..., None]
         else:
             raise ValueError("mode has to be 'all' or 'per_channel' - '{}' "
                              "was provided instead".format(mode))
@@ -841,55 +888,18 @@ class MaskedImage(Image):
             Image.from_vector_inplace(self,
                                       normalized_pixels.flatten())
 
-    def gradient(self, nullify_values_at_mask_boundaries=False):
-        r"""
-        Returns a :map:`MaskedImage` which is the gradient of this one. In the
-        case of multiple channels, it returns the gradient over each axis over
-        each channel as a flat list.
-
-        Parameters
-        ----------
-        nullify_values_at_mask_boundaries : `bool`, optional
-            If ``True`` a one pixel boundary is set to 0 around the edge of
-            the ``True`` mask region. This is useful in situations where
-            there is absent data in the image which will cause erroneous
-            gradient settings.
-
-        Returns
-        -------
-        gradient : :map:`MaskedImage`
-            The gradient over each axis over each channel. Therefore, the
-            gradient of a 2D, single channel image, will have length `2`.
-            The length of a 2D, 3-channel image, will have length `6`.
-        """
-        global binary_erosion, gradient
-        if gradient is None:
-            from menpo.feature import gradient  # avoid circular reference
-        # use the feature to take the gradient as normal
-        grad_image = gradient(self)
-        if nullify_values_at_mask_boundaries:
-            if binary_erosion is None:
-                from scipy.ndimage import binary_erosion  # expensive
-            # Erode the edge of the mask in by one pixel
-            eroded_mask = binary_erosion(self.mask.mask, iterations=1)
-
-            # replace the eroded mask with the diff between the two
-            # masks. This is only true in the region we want to nullify.
-            np.logical_and(~eroded_mask, self.mask.mask, out=eroded_mask)
-            # nullify all the boundary values in the grad image
-            grad_image.pixels[eroded_mask] = 0.0
-        return grad_image
-
     def constrain_mask_to_landmarks(self, group=None, label=None,
                                     trilist=None):
         r"""
         Restricts this image's mask to be equal to the convex hull around the
-        landmarks chosen.
+        landmarks chosen. This is not a per-pixel convex hull, but is instead
+        estimated by a triangulation of the points that contain the convex
+        hull.
 
         Parameters
         ----------
         group : `str`, optional
-            The key of the landmark set that should be used. If `None`,
+            The key of the landmark set that should be used. If ``None``,
             and if there is only one set of landmarks, this set will be used.
         label: `str`, optional
             The label of of the landmark manager that you wish to use. If no
@@ -904,8 +914,9 @@ class MaskedImage(Image):
 
     def build_mask_around_landmarks(self, patch_size, group=None, label=None):
         r"""
-        Restricts this image's mask to be equal to the convex hull
-        around the landmarks chosen.
+        Restricts this images mask to be patches around each landmark in
+        the chosen landmark group. This is useful for visualizing patch
+        based methods.
 
         Parameters
         ----------
@@ -913,7 +924,7 @@ class MaskedImage(Image):
             The size of the patch. Any floating point values are rounded up
             to the nearest integer.
         group : `str`, optional
-            The key of the landmark set that should be used. If `None`,
+            The key of the landmark set that should be used. If ``None``,
             and if there is only one set of landmarks, this set will be used.
         label: `str`, optional
             The label of of the landmark manager that you wish to use. If no
@@ -938,3 +949,34 @@ class MaskedImage(Image):
             mask[x.flatten(), y.flatten()] = True
 
         self.mask = BooleanImage(mask)
+
+    def set_boundary_pixels(self, value=0.0, n_pixels=1):
+        r"""
+        Returns a copy of this :map:`MaskedImage` for which n pixels along
+        the its mask boundary have been set to a particular value. This is
+        useful in situations where there is absent data in the image which
+        can cause, for example, erroneous computations of gradient or features.
+
+        Parameters
+        ----------
+        value : float or (n_channels, 1) ndarray
+        n_pixels : int, optional
+            The number of pixels along the mask boundary that will be set to 0.
+
+        Returns
+        -------
+         : :map:`MaskedImage`
+            The copy of the image for which the n pixels along its mask
+            boundary have been set to a particular value.
+        """
+        global binary_erosion
+        if binary_erosion is None:
+            from scipy.ndimage import binary_erosion  # expensive
+        # Erode the edge of the mask in by one pixel
+        eroded_mask = binary_erosion(self.mask.mask, iterations=n_pixels)
+
+        # replace the eroded mask with the diff between the two
+        # masks. This is only true in the region we want to nullify.
+        np.logical_and(~eroded_mask, self.mask.mask, out=eroded_mask)
+        # set all the boundary pixels to a particular value
+        self.pixels[..., eroded_mask] = value
