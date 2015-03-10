@@ -2045,6 +2045,98 @@ def ear_55(landmark_group):
     return group, new_landmark_group
 
 
+def svs_face_68(landmark_group):
+    """
+    Apply the ibug's "standard" 68 point semantic labels (based on the
+    original semantic labels of multiPIE) to the landmark group.
+
+    The group label will be ``ibug_face_68``.
+
+    The semantic labels applied are as follows:
+
+      - jaw
+      - left_eyebrow
+      - right_eyebrow
+      - nose
+      - left_eye
+      - right_eye
+      - mouth
+
+    Parameters
+    ----------
+    landmark_group : :map:`LandmarkGroup`
+        The landmark group to apply semantic labels to.
+
+    Returns
+    -------
+    group : `str`
+        The group label: ``ibug_face_68``
+    landmark_group : :map:`LandmarkGroup`
+        New landmark group.
+
+    Raises
+    ------
+    error : :map:`LabellingError`
+        If the given landmark group contains less than 68 points
+
+    References
+    ----------
+    .. [1] http://www.multipie.org/
+    """
+    from menpo.shape import PointUndirectedGraph
+
+    group = 'svs_face_68'
+    _validate_input(landmark_group, 68, group)
+
+    jaw_indices = np.arange(0, 17)
+    lbrow_indices = np.arange(17, 22)
+    rbrow_indices = np.arange(22, 27)
+    upper_nose_indices = np.arange(27, 31)
+    lower_nose_indices = np.arange(31, 36)
+    leye_indices = np.arange(36, 42)
+    reye_indices = np.arange(42, 48)
+    outer_mouth_indices = np.arange(48, 60)
+    inner_mouth_indices = np.arange(60, 68)
+
+    jaw_connectivity = _connectivity_from_array(jaw_indices)
+    lbrow_connectivity = _connectivity_from_array(lbrow_indices)
+    rbrow_connectivity = _connectivity_from_array(rbrow_indices)
+    upper_nose_connectivity = _connectivity_from_array(upper_nose_indices)
+    lower_nose_connectivity = _connectivity_from_array(lower_nose_indices)
+    leye_connectivity = _connectivity_from_array(leye_indices, close_loop=True)
+    reye_connectivity = _connectivity_from_array(reye_indices, close_loop=True)
+    outter_mouth_connectivity = _connectivity_from_array(
+        outer_mouth_indices, close_loop=True
+    )
+
+    inner_mouth_connectivity = _connectivity_from_array(
+        inner_mouth_indices, close_loop=True
+    )
+
+    total_conn = np.vstack([
+        jaw_connectivity, lbrow_connectivity, rbrow_connectivity,
+        upper_nose_connectivity, lower_nose_connectivity, leye_connectivity, reye_connectivity,
+        outter_mouth_connectivity, inner_mouth_connectivity
+    ])
+
+    new_landmark_group = LandmarkGroup.init_with_all_label(
+        PointUndirectedGraph(landmark_group.lms.points, total_conn))
+
+    new_landmark_group['jaw'] = jaw_indices
+    new_landmark_group['left_eyebrow'] = lbrow_indices
+    new_landmark_group['right_eyebrow'] = rbrow_indices
+    new_landmark_group['upper_nose'] = upper_nose_indices
+    new_landmark_group['lower_nose'] = lower_nose_indices
+    new_landmark_group['left_eye'] = leye_indices
+    new_landmark_group['right_eye'] = reye_indices
+    new_landmark_group['outer_mouth'] = outer_mouth_indices
+    new_landmark_group['inner_mouth'] = inner_mouth_indices
+
+    del new_landmark_group['all']  # Remove pointless all group
+
+    return group, new_landmark_group
+
+
 
 def labeller(landmarkable, group, label_func):
     """
