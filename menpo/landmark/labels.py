@@ -2095,8 +2095,10 @@ def svs_face_68(landmark_group):
     lower_nose_indices = np.arange(31, 36)
     leye_indices = np.arange(36, 42)
     reye_indices = np.arange(42, 48)
-    outer_mouth_indices = np.arange(48, 60)
-    inner_mouth_indices = np.arange(60, 68)
+    outer_mouth_indices_u = np.arange(48, 55)
+    outer_mouth_indices_d = np.arange(55, 60)
+    inner_mouth_indices_u = np.arange(60, 65)
+    inner_mouth_indices_d = np.arange(65, 68)
 
     jaw_connectivity = _connectivity_from_array(jaw_indices)
     lbrow_connectivity = _connectivity_from_array(lbrow_indices)
@@ -2105,18 +2107,26 @@ def svs_face_68(landmark_group):
     lower_nose_connectivity = _connectivity_from_array(lower_nose_indices)
     leye_connectivity = _connectivity_from_array(leye_indices, close_loop=True)
     reye_connectivity = _connectivity_from_array(reye_indices, close_loop=True)
-    outter_mouth_connectivity = _connectivity_from_array(
-        outer_mouth_indices, close_loop=True
+    outter_mouth_connectivity_u = _connectivity_from_array(
+        outer_mouth_indices_u
+    )
+    outter_mouth_connectivity_d = _connectivity_from_array(
+        outer_mouth_indices_d
     )
 
-    inner_mouth_connectivity = _connectivity_from_array(
-        inner_mouth_indices, close_loop=True
+    inner_mouth_connectivity_u = _connectivity_from_array(
+        inner_mouth_indices_u
+    )
+
+    inner_mouth_connectivity_d = _connectivity_from_array(
+        inner_mouth_indices_d
     )
 
     total_conn = np.vstack([
         jaw_connectivity, lbrow_connectivity, rbrow_connectivity,
         upper_nose_connectivity, lower_nose_connectivity, leye_connectivity, reye_connectivity,
-        outter_mouth_connectivity, inner_mouth_connectivity
+        outter_mouth_connectivity_u, outter_mouth_connectivity_d,
+        inner_mouth_connectivity_u, inner_mouth_connectivity_d
     ])
 
     new_landmark_group = LandmarkGroup.init_with_all_label(
@@ -2129,8 +2139,10 @@ def svs_face_68(landmark_group):
     new_landmark_group['lower_nose'] = lower_nose_indices
     new_landmark_group['left_eye'] = leye_indices
     new_landmark_group['right_eye'] = reye_indices
-    new_landmark_group['outer_mouth'] = outer_mouth_indices
-    new_landmark_group['inner_mouth'] = inner_mouth_indices
+    new_landmark_group['outer_mouth_u'] = outer_mouth_indices_u
+    new_landmark_group['inner_mouth_u'] = inner_mouth_indices_u
+    new_landmark_group['outer_mouth_d'] = outer_mouth_indices_d
+    new_landmark_group['inner_mouth_d'] = inner_mouth_indices_d
 
     del new_landmark_group['all']  # Remove pointless all group
 
