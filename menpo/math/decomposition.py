@@ -223,3 +223,5 @@ def ipca(B, U_a, l_a, n_a, m_a=None, f=1.0, eps=1e-10):
     U = Vt_tilde.dot(np.vstack((U_a, B_tilde)))[:len(l), :]
 
     return U, l, m
+
+
