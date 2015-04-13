@@ -2,8 +2,7 @@ import numpy as np
 from copy import deepcopy
 from menpo.base import Copyable
 from menpo.transform.base import Alignment, Invertible, Transform
-from .fastpwa import CLookupPWA
-# TODO View is broken for PWA (TriangleContainmentError)
+from .fastpwa import OpcodePWA
 
 
 class TriangleContainmentError(Exception):
@@ -280,6 +279,37 @@ class AbstractPWA(Alignment, Transform, Invertible):
                 alpha[:, None] * self.tij[tri_index] +
                 beta[:, None] * self.tik[tri_index])
 
+    def _apply_batched(self, x, batch_size, **kwargs):
+        # This is a rare case where we need to override the batched apply
+        # method. In this case, we override it because we want to the
+        # possibly raised TriangleContainmentError to contain ALL the points
+        # that were considered, and not just the first batch of points.
+        if batch_size is None:
+            return self._apply(x, **kwargs)
+        else:
+            outputs = []
+            points_outside_source_domain = []
+            n_points = x.shape[0]
+            exception_thrown = False
+            for lo_ind in range(0, n_points, batch_size):
+                try:
+                    hi_ind = lo_ind + batch_size
+                    outputs.append(self._apply(x[lo_ind:hi_ind], **kwargs))
+                except TriangleContainmentError as e:
+                    exception_thrown = True
+                    points_outside_source_domain.append(
+                        e.points_outside_source_domain)
+                else:
+                    # No exception was thrown, so all points were inside
+                    points_outside_source_domain.append(
+                        np.zeros(batch_size, dtype=np.bool))
+
+            if exception_thrown:
+                raise TriangleContainmentError(
+                    np.hstack(points_outside_source_domain))
+            else:
+                return np.vstack(outputs)
+
     def index_alpha_beta(self, points):
         """
         Finds for each input point the index of its bounding triangle and the
@@ -398,12 +428,12 @@ class CythonPWA(AbstractPWA):
     def __init__(self, source, target):
         super(CythonPWA, self).__init__(source, target)
         # make sure the source and target satisfy the c requirements
-        source_c = np.require(self.source.points, dtype=np.float64,
+        source_c = np.require(self.source.points, dtype=np.float32,
                               requirements=['C'])
-        trilist_c = np.require(self.trilist, dtype=np.uint32,
+        trilist_c = np.require(self.trilist, dtype=np.int32,
                                requirements=['C'])
         # build the cython wrapped C object and store it locally
-        self._fastpwa = CLookupPWA(source_c, trilist_c)
+        self._fastpwa = OpcodePWA(source_c, trilist_c)
 
     def copy(self):
         new = Copyable.copy(self)
@@ -411,7 +441,7 @@ class CythonPWA(AbstractPWA):
         return new
 
     def index_alpha_beta(self, points):
-        points_c = np.require(points, dtype=np.float64, requirements=['C'])
+        points_c = np.require(points, dtype=np.float32, requirements=['C'])
         index, alpha, beta = self._fastpwa.index_alpha_beta(points_c)
         if np.any(index < 0):
             raise TriangleContainmentError(index < 0)

@@ -1,6 +1,6 @@
 from menpo.shape import PointCloud
 from menpo.transform.groupalign.base import MultipleAlignment
-from menpo.math import principal_component_decomposition as pca
+from menpo.math import pca
 import numpy as np
 from scipy.spatial import cKDTree as KDTree
 from scipy.sparse.linalg import spsolve
@@ -187,7 +187,7 @@ def nicp(source, target, eps=1e-3):
     M_kron_G_s = sp.kron(M_s, G)
 
     # build the kD-tree
-    print('building KD-tree for target...')
+    # print('building KD-tree for target...')
     kdtree = KDTree(target.points)
 
     # init transformation
@@ -213,7 +213,7 @@ def nicp(source, target, eps=1e-3):
     o = np.ones(n)
 
     for alpha in stiffness:
-        print(alpha)
+        # print(alpha)
         # get the term for stiffness
         alpha_M_kron_G_s = alpha * M_kron_G_s
 
