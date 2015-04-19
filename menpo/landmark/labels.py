@@ -2052,7 +2052,7 @@ def ear_55(landmark_group):
     ])
 
     new_landmark_group = LandmarkGroup(
-        PointUndirectedGraph(landmark_group.lms.points, total_connectivity),
+        PointUndirectedGraph.init_from_edges(landmark_group.lms.points, total_connectivity),
         OrderedDict([('all', np.ones(n_points, dtype=np.bool))]))
 
     new_landmark_group['outer_bound'] = outer_bound_indices
@@ -2150,7 +2150,7 @@ def svs_face_68(landmark_group):
     ])
 
     new_landmark_group = LandmarkGroup.init_with_all_label(
-        PointUndirectedGraph(landmark_group.lms.points, total_conn))
+        PointUndirectedGraph.init_from_edges(landmark_group.lms.points, total_conn))
 
     new_landmark_group['jaw'] = jaw_indices
     new_landmark_group['left_eyebrow'] = lbrow_indices
