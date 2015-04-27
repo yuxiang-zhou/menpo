@@ -140,7 +140,7 @@ class ICP(MultipleAlignment):
         return nodes[index], index
 
 
-def nicp(source, target, eps=1e-3):
+def nicp(source, target, eps=1e-3, us=101, ls=1, step=5):
     r"""
     Deforms the source trimesh to align with to optimally the target.
     """
@@ -151,9 +151,9 @@ def nicp(source, target, eps=1e-3):
     trilist = source.trilist
 
     # Configuration
-    upper_stiffness = 101
-    lower_stiffness = 1
-    stiffness_step = 5
+    upper_stiffness = us
+    lower_stiffness = ls
+    stiffness_step = step
 
     # Get a sorted list of edge pairs (note there will be many mirrored pairs
     # e.g. [4, 7] and [7, 4])
@@ -197,7 +197,8 @@ def nicp(source, target, eps=1e-3):
 
     # start nicp
     # for each stiffness
-    stiffness = range(upper_stiffness, lower_stiffness, -stiffness_step)
+    # stiffness = range(upper_stiffness, lower_stiffness, -stiffness_step)
+    stiffness = np.logspace(lower_stiffness, upper_stiffness, num=stiffness_step, base=1.005)[-1::-1]
     errs = []
 
 
@@ -211,7 +212,7 @@ def nicp(source, target, eps=1e-3):
                      x[:, n_dims]))
 
     o = np.ones(n)
-
+    iterations = [v_i]
     for alpha in stiffness:
         # print(alpha)
         # get the term for stiffness
@@ -243,8 +244,9 @@ def nicp(source, target, eps=1e-3):
             X_prev = X
 
             if err / np.sqrt(np.size(X_prev)) < eps:
+                iterations.append(v_i)
                 break
 
     # final result
     point_corr = kdtree.query(v_i)[1]
-    return v_i, point_corr
+    return (v_i, iterations), point_corr
